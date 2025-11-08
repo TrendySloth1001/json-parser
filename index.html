@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JSON Pretiffier</title>
+    <link rel="stylesheet" href="/src/styles.css">
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <h1>JSON Pretiffier</h1>
+        <div class="controls">
+          <label for="examples">Examples:</label>
+          <select id="examples">
+            <option value="">— choose —</option>
+            <option value="small">Small object</option>
+            <option value="nested">Nested arrays & objects</option>
+            <option value="big">Large sample</option>
+          </select>
+
+          <label for="indent">Indent:</label>
+          <select id="indent">
+            <option value="2">2</option>
+            <option value="4" selected>4</option>
+            <option value="\t">Tab</option>
+          </select>
+
+          <label class="checkbox"><input type="checkbox" id="sortKeys"> Sort keys</label>
+
+          <button id="formatBtn" class="btn primary">Format</button>
+          <button id="minifyBtn" class="btn">Minify</button>
+          <button id="copyBtn" class="btn">Copy</button>
+          <button id="downloadBtn" class="btn">Download</button>
+
+          <button id="themeToggle" class="btn">Light</button>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="panel">
+          <h2>Input</h2>
+          <div class="editor" id="inputEditor">
+            <div class="gutter" id="inputGutter" aria-hidden="true"></div>
+            <textarea id="input" placeholder='Paste JSON here...' spellcheck="false"></textarea>
+          </div>
+          <div class="drop-hint">Drop a .json file here to load</div>
+        </section>
+
+        <section class="panel">
+          <h2>Output</h2>
+          <div class="editor output-editor">
+            <div class="gutter" id="outputGutter" aria-hidden="true"></div>
+            <pre id="output" class="output" aria-live="polite"></pre>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <small>Built with TypeScript, HTML & CSS • Error highlighting for invalid JSON</small>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
