@@ -13,6 +13,7 @@ const inputGutter = document.getElementById('inputGutter') as HTMLElement
 const outputGutter = document.getElementById('outputGutter') as HTMLElement
 const examplesSelect = document.getElementById('examples') as HTMLSelectElement
 const themeToggle = document.getElementById('themeToggle') as HTMLButtonElement
+const inputPanel = document.getElementById('inputPanel') as HTMLElement
 
 function escapeHtml(str: string) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -38,7 +39,7 @@ function highlightJSONToHTML(text: string) {
 function showOutputText(text: string, isError = false, errorPos?: number) {
   output.classList.toggle('error', isError)
   if (!text) {
-    output.innerHTML = ''
+    output.innerHTML = '<span style="color: var(--muted); font-style: italic;">Output will appear here...</span>'
     outputGutter.innerHTML = ''
     return
   }
@@ -83,41 +84,128 @@ function parsePositionFromError(errMsg: string | undefined): number | undefined 
 }
 
 function performFormat(isMinify = false) {
-  const raw = input.value
-  const indentVal = indentSelect.value === '\t' ? '\t' : Number(indentSelect.value)
-  const opts = { sortKeys: !!sortKeysCheckbox?.checked }
-  const res = isMinify ? minifyJSON(raw, opts) : formatJSON(raw, indentVal, opts)
-  if (res.ok) {
-    showOutputText(res.value, false)
-  } else {
-    const pos = parsePositionFromError(res.error)
-    showOutputText(res.error, true, pos)
+  const raw = input.value.trim()
+  
+  if (!raw) {
+    showNotification('Please enter some JSON first', 'warning')
+    return
   }
+  
+  const btn = isMinify ? minifyBtn : formatBtn
+  const originalText = btn.textContent
+  btn.classList.add('loading')
+  btn.disabled = true
+  
+  // Small delay to show loading state
+  setTimeout(() => {
+    const indentVal = indentSelect.value === '\t' ? '\t' : Number(indentSelect.value)
+    const opts = { sortKeys: !!sortKeysCheckbox?.checked }
+    const res = isMinify ? minifyJSON(raw, opts) : formatJSON(raw, indentVal, opts)
+    
+    if (res.ok) {
+      showOutputText(res.value, false)
+      showNotification(isMinify ? 'JSON minified successfully' : 'JSON formatted successfully', 'success')
+    } else {
+      const pos = parsePositionFromError(res.error)
+      showOutputText(res.error, true, pos)
+      showNotification('Invalid JSON syntax', 'error')
+    }
+    
+    btn.classList.remove('loading')
+    btn.disabled = false
+  }, 100)
 }
 
 async function onCopy() {
   const text = (output.textContent || '')
+  if (!text.trim()) {
+    showNotification('Nothing to copy', 'warning')
+    return
+  }
   try {
     await navigator.clipboard.writeText(text)
-    copyBtn.textContent = 'Copied'
-    setTimeout(() => (copyBtn.textContent = 'Copy'), 1200)
+    copyBtn.textContent = 'Copied!'
+    copyBtn.classList.add('loading')
+    showNotification('Copied to clipboard', 'success')
+    setTimeout(() => {
+      copyBtn.textContent = 'Copy'
+      copyBtn.classList.remove('loading')
+    }, 1500)
   } catch (err) {
     copyBtn.textContent = 'Failed'
-    setTimeout(() => (copyBtn.textContent = 'Copy'), 1200)
+    showNotification('Failed to copy', 'error')
+    setTimeout(() => (copyBtn.textContent = 'Copy'), 1500)
   }
 }
 
+function showNotification(message: string, type: 'success' | 'error' | 'warning' = 'success') {
+  const notification = document.createElement('div')
+  notification.className = `notification notification-${type}`
+  notification.textContent = message
+  notification.style.cssText = `
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    padding: 16px 24px;
+    background: ${type === 'success' ? 'var(--success)' : type === 'error' ? 'var(--danger)' : 'var(--warning)'};
+    color: white;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    font-weight: 600;
+    z-index: 1000;
+    animation: slideInRight 0.3s ease-out;
+  `
+  
+  document.body.appendChild(notification)
+  
+  setTimeout(() => {
+    notification.style.animation = 'slideOutRight 0.3s ease-out'
+    setTimeout(() => notification.remove(), 300)
+  }, 2500)
+}
+
+const style = document.createElement('style')
+style.textContent = `
+  @keyframes slideInRight {
+    from {
+      transform: translateX(400px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes slideOutRight {
+    from {
+      transform: translateX(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateX(400px);
+      opacity: 0;
+    }
+  }
+`
+document.head.appendChild(style)
+
 function onDownload() {
   const text = (output.textContent || '')
+  if (!text.trim()) {
+    showNotification('Nothing to download', 'warning')
+    return
+  }
   const blob = new Blob([text], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'data.json'
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-')
+  a.download = `formatted-${timestamp}.json`
   document.body.appendChild(a)
   a.click()
   a.remove()
   URL.revokeObjectURL(url)
+  showNotification('File downloaded successfully', 'success')
 }
 
 function syncGutterScroll(src: HTMLElement, gutter: HTMLElement) {
@@ -129,31 +217,137 @@ minifyBtn.addEventListener('click', () => performFormat(true))
 copyBtn.addEventListener('click', onCopy)
 downloadBtn.addEventListener('click', onDownload)
 
-// input listeners
+// input listeners with debounced live preview
+let debounceTimer: number | undefined
+
 input.addEventListener('input', () => {
   const raw = input.value
   updateGutter(input, inputGutter)
+  
   if (raw.trim() === '') {
     showOutputText('')
     return
   }
-  // live preview (best-effort): format with given indent, but suppress detailed errors
-  const res = formatJSON(raw, Number(indentSelect.value) || 2, { sortKeys: !!sortKeysCheckbox.checked })
-  if (res.ok) showOutputText(res.value)
-  else showOutputText('Invalid JSON — click Format to see details.', true)
+  
+  // Debounce live preview for better performance
+  clearTimeout(debounceTimer)
+  debounceTimer = window.setTimeout(() => {
+    // live preview (best-effort): format with given indent, but suppress detailed errors
+    const res = formatJSON(raw, Number(indentSelect.value) || 2, { sortKeys: !!sortKeysCheckbox.checked })
+    if (res.ok) {
+      showOutputText(res.value)
+    } else {
+      showOutputText('Invalid JSON — Click "Format" button to see detailed error information', true)
+    }
+  }, 300) // 300ms debounce
 })
 
 // sync scroll
 input.addEventListener('scroll', () => syncGutterScroll(input, inputGutter))
 output.addEventListener('scroll', () => syncGutterScroll(output, outputGutter))
 
-// keyboard shortcut: Cmd/Ctrl+Enter to format
+// keyboard shortcuts
 window.addEventListener('keydown', (e) => {
+  // Cmd/Ctrl+Enter to format
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault()
     performFormat(false)
   }
+  // Cmd/Ctrl+M to minify
+  if ((e.ctrlKey || e.metaKey) && e.key === 'm') {
+    e.preventDefault()
+    performFormat(true)
+  }
+  // Cmd/Ctrl+K to clear
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault()
+    input.value = ''
+    input.dispatchEvent(new Event('input'))
+    showNotification('Cleared input', 'success')
+  }
+  // Cmd/Ctrl+/ to show shortcuts
+  if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+    e.preventDefault()
+    showShortcuts()
+  }
 })
+
+function showShortcuts() {
+  const modal = document.createElement('div')
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    animation: fadeIn 0.2s ease-out;
+  `
+  
+  const content = document.createElement('div')
+  content.style.cssText = `
+    background: var(--panel);
+    padding: 32px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    max-width: 500px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  `
+  
+  content.innerHTML = `
+    <h3 style="margin: 0 0 24px 0; font-size: 1.5rem; color: var(--text);">Keyboard Shortcuts</h3>
+    <div style="display: grid; gap: 12px;">
+      <div style="display: flex; justify-content: space-between; padding: 8px; background: var(--bg-secondary); border-radius: 8px;">
+        <span>Format JSON</span>
+        <kbd style="padding: 4px 8px; background: var(--accent); color: white; border-radius: 4px; font-size: 0.875rem;">Ctrl/Cmd + Enter</kbd>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding: 8px; background: var(--bg-secondary); border-radius: 8px;">
+        <span>Minify JSON</span>
+        <kbd style="padding: 4px 8px; background: var(--accent); color: white; border-radius: 4px; font-size: 0.875rem;">Ctrl/Cmd + M</kbd>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding: 8px; background: var(--bg-secondary); border-radius: 8px;">
+        <span>Clear Input</span>
+        <kbd style="padding: 4px 8px; background: var(--accent); color: white; border-radius: 4px; font-size: 0.875rem;">Ctrl/Cmd + K</kbd>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding: 8px; background: var(--bg-secondary); border-radius: 8px;">
+        <span>Show Shortcuts</span>
+        <kbd style="padding: 4px 8px; background: var(--accent); color: white; border-radius: 4px; font-size: 0.875rem;">Ctrl/Cmd + /</kbd>
+      </div>
+    </div>
+    <button id="closeModal" style="margin-top: 24px; width: 100%; padding: 12px; background: var(--accent); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Close</button>
+  `
+  
+  modal.appendChild(content)
+  document.body.appendChild(modal)
+  
+  const closeModal = () => {
+    modal.style.animation = 'fadeOut 0.2s ease-out'
+    setTimeout(() => modal.remove(), 200)
+  }
+  
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal()
+  })
+  
+  content.querySelector('#closeModal')?.addEventListener('click', closeModal)
+}
+
+const fadeStyles = document.createElement('style')
+fadeStyles.textContent = `
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+`
+document.head.appendChild(fadeStyles)
 
 // examples
 examplesSelect.addEventListener('change', () => {
@@ -167,31 +361,65 @@ examplesSelect.addEventListener('change', () => {
   input.dispatchEvent(new Event('input'))
 })
 
-// drag & drop file load
+// drag & drop file load with visual feedback
+let dragCounter = 0
+
+document.addEventListener('dragenter', (e) => {
+  e.preventDefault()
+  dragCounter++
+  inputPanel.classList.add('drag-over')
+})
+
+document.addEventListener('dragleave', (e) => {
+  e.preventDefault()
+  dragCounter--
+  if (dragCounter === 0) {
+    inputPanel.classList.remove('drag-over')
+  }
+})
+
 document.addEventListener('dragover', (e) => e.preventDefault())
+
 document.addEventListener('drop', (e) => {
   e.preventDefault()
+  dragCounter = 0
+  inputPanel.classList.remove('drag-over')
+  
   const f = e.dataTransfer?.files?.[0]
-  if (!f) return
-  if (!f.name.endsWith('.json')) return
+  if (!f) {
+    showNotification('No file detected', 'warning')
+    return
+  }
+  if (!f.name.endsWith('.json')) {
+    showNotification('Please drop a .json file', 'warning')
+    return
+  }
+  
   const reader = new FileReader()
   reader.onload = () => {
     input.value = String(reader.result)
     input.dispatchEvent(new Event('input'))
+    showNotification(`Loaded: ${f.name}`, 'success')
+  }
+  reader.onerror = () => {
+    showNotification('Failed to read file', 'error')
   }
   reader.readAsText(f)
 })
 
-// theme toggle
+// theme toggle with enhanced UX
 function initTheme() {
   const saved = localStorage.getItem('theme') || 'dark'
-  document.body.classList.toggle('light', saved === 'light')
-  themeToggle.textContent = saved === 'light' ? 'Dark' : 'Light'
+  const isLight = saved === 'light'
+  document.body.classList.toggle('light', isLight)
+  themeToggle.textContent = isLight ? 'Light' : 'Dark'
 }
+
 themeToggle.addEventListener('click', () => {
-  const now = document.body.classList.toggle('light')
-  localStorage.setItem('theme', now ? 'light' : 'dark')
-  themeToggle.textContent = now ? 'Dark' : 'Light'
+  const isLight = document.body.classList.toggle('light')
+  localStorage.setItem('theme', isLight ? 'light' : 'dark')
+  themeToggle.textContent = isLight ? 'Light' : 'Dark'
+  showNotification(`Switched to ${isLight ? 'light' : 'dark'} theme`, 'success')
 })
 
 initTheme()
